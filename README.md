@@ -1,129 +1,118 @@
 # UrbanMeal AI Data Engineering — End-to-End Project
 
+## 📖 Project Overview
+This project presents a complete batch data pipeline that processes UrbanMeal-style food delivery data from raw CSV files into an AI-powered analytics platform. 
 
-A complete batch data pipeline that takes UrbanMeal-style food delivery data from raw CSVs all the way to AI-powered analytics:
+The dataset lands in an Amazon S3 data lake and flows into Snowflake via a secure storage integration. From there, `dbt` transforms the data through a Medallion Architecture (Bronze, Silver, Gold). Apache Airflow orchestrates the entire pipeline through a daily DAG. Finally, an AI layer powered by OpenAI enriches the data, provides a RAG-based chat interface for customer reviews, and enables text-to-SQL capabilities.
 
-**UrbanMeal/Food Delivery Dataset → Amazon S3 → Snowflake → dbt → Airflow → AI (OpenAI)**
+### 🌟 Key Features
+- **Automated Data Pipeline**: Orchestrated by Apache Airflow via Docker.
+- **Medallion Architecture**: RAW (Bronze), STAGING (Silver), and MARTS (Gold) implemented using `dbt`.
+- **AI-Enrichment**: Analyzes free-text reviews for sentiment and topic using OpenAI's LLMs.
+- **Interactive Apps**: Built with Streamlit for RAG (Chat with Reviews) and Text-to-SQL (Chat with Data).
+- **Secure Integration**: Keyless S3 to Snowflake handshake using AWS IAM roles.
 
-The dataset lands in an S3 data lake and flows into Snowflake through a storage integration, where dbt transforms it through medallion layers — RAW (Bronze) tables loaded via `COPY INTO`, cleaned STAGING (Silver) views, and business-ready MARTS (Gold) with dimensions, incremental facts, and aggregate marts. Apache Airflow orchestrates the whole pipeline as one daily DAG. On top of the warehouse sits an AI lane powered by OpenAI: LLM enrichment turns free-text reviews into structured, queryable columns; RAG lets you chat with your reviews; and text-to-SQL lets you query the warehouse in plain English. Streamlit serves the dashboards and AI apps.
+---
+
+## 🏗️ Architecture & Tech Stack
+**Flow:** UrbanMeal Dataset → Amazon S3 → Snowflake → dbt → Airflow → AI (OpenAI/Streamlit)
 
 ![Architecture](docs/architecture.png)
 
-> 📂 **Dataset:** Download the CSV files and place them under `data/` (they're too large to commit to the repo).
+- **Storage & Processing:** Amazon S3, Snowflake
+- **Transformation:** dbt (dbt-snowflake)
+- **Orchestration:** Apache Airflow 3 (Docker)
+- **AI & Frontend:** Python, Pandas, OpenAI (`gpt-4o-mini`, `text-embedding-3-small`), Streamlit
 
-## What gets built
+---
 
-| Layer | Where | What |
-|---|---|---|
-| **Source** | `data/` (local) | 4 real dimension CSVs (restaurants, users, food, menu) + 3 generated fact files: **10M orders**, **~23M order items**, **300K free-text reviews** |
-| **Lake** | Amazon S3 | One bucket, `raw/<table>/` folder per CSV |
-| **Bronze** | Snowflake `URBANMEAL.RAW` | `COPY INTO` from S3 via a keyless storage integration |
-| **Silver** | Snowflake `URBANMEAL.STAGING` | dbt staging views — clean, type, rename every source |
-| **Gold** | Snowflake `URBANMEAL.MARTS` | Dimensions, **incremental** facts (MERGE), business marts + an SCD2 snapshot |
-| **AI** | Snowflake `URBANMEAL.AI` | LLM-enriched reviews (sentiment/topic), RAG chat, text-to-SQL |
-| **Orchestration** | Airflow (Docker) | One daily DAG: load → transform → enrich → AI mart |
+## 📂 Dataset
+> [Download the CSV files here](https://drive.google.com/drive/folders/1FEnGWMHhHzzTUCZOw1-YnH2v3DMuM-rs?usp=sharing) and place them under the `data/` directory. (Note: These files are too large to commit to the repository).
 
-## Tech stack
+The dataset includes:
+- **Dimensions (CSVs):** Restaurants, Users, Food, Menu.
+- **Facts:** ~10M orders, ~23M order items, ~300K free-text reviews.
 
-Python · Pandas · Amazon S3 · Snowflake · dbt (dbt-snowflake) · Apache Airflow 3 (Docker) · OpenAI (`gpt-4o-mini`, `text-embedding-3-small`) · Streamlit
+---
 
-## Repository structure
-
-```
-├── airflow/                  # Airflow 3 on Docker
-│   ├── Dockerfile            #   Snowflake + OpenAI providers, dbt in its own venv
-│   ├── docker-compose.yaml   #   postgres + api-server + scheduler; creds via env vars
-│   ├── example.env           #   template for SNOWFLAKE_* / OPENAI_API_KEY
-│   └── dags/urbanmeal_batch.py  #   the pipeline DAG (4 tasks)
-├── urbanmeal/                   # dbt project
-│   ├── models/staging/       #   7 staging views (Silver) + sources + tests
-│   ├── models/marts/         #   dims, incremental facts, business marts (Gold)
-│   └── macros/               #   custom schema-name macro
-├── ai/                       # AI layer
-│   ├── enrich_reviews.py     #   LLM enrichment → URBANMEAL.AI.REVIEW_ENRICHED
-│   ├── rag_chat.py           #   RAG — "chat with your reviews" (Streamlit)
-│   ├── text_to_sql.py        #   text-to-SQL — "chat with your warehouse" (Streamlit)
-│   └── example.env           #   template for the AI credentials
-├── snowflake/                # Snowflake setup SQL (run in Snowsight, in order)
-│   ├── 01_setup.sql          #   warehouse URBANMEAL_WH, database URBANMEAL, schemas, role
-│   ├── 02_storage_integration.sql  # keyless S3 link (pairs with aws/iam/)
-│   ├── 03_stage_and_formats.sql    # external stage + CSV file format
-│   ├── 04_raw_tables.sql     #   RAW (Bronze) table DDL, column order matches the CSVs
-│   └── 05_copy_into.sql      #   COPY INTO RAW from the stage
-├── aws/iam/                  # IAM policy + role trust policies for the S3 ↔ Snowflake handshake
-└── docs/architecture.png     # architecture diagram
+## 📁 Repository Structure
+```text
+├── airflow/                  # Airflow 3 on Docker (Snowflake + OpenAI providers)
+│   ├── docker-compose.yaml   # Postgres + API + Scheduler
+│   ├── example.env           # Template for SNOWFLAKE_* / OPENAI_API_KEY
+│   └── dags/urbanmeal_batch.py  # Pipeline DAG
+├── urbanmeal/                # dbt project (Medallion models & macros)
+├── ai/                       # AI Layer (Enrichment, RAG Chat, Text-to-SQL)
+├── snowflake/                # Snowflake SQL Setup (Warehouse, Integration, DDL)
+├── aws/iam/                  # IAM Policies and Role Trust documents
+└── docs/architecture.png     # Architecture diagram
 ```
 
-> `data/` (~2.3 GB of CSVs), logs, and dbt `target/` artifacts are intentionally not committed.
+---
 
+## 🚀 Setup & Running Instructions
 
-## How the pipeline works
+### Prerequisites
+- Docker & Docker Compose
+- AWS Account (S3 & IAM access)
+- Snowflake Account
+- OpenAI API Key
 
-### 1 · Data lands in S3
+### Step 1: Data Storage (AWS S3)
+1. Create an S3 Bucket.
+2. Upload the downloaded dataset CSVs into your bucket under the path: `s3://<YOUR_BUCKET>/raw/<table>/` (e.g., `raw/restaurants/`, `raw/users/`).
 
-The seven CSVs are uploaded to `s3://<BUCKET>/raw/<table>/` — one folder per table (`restaurants/`, `users/`, `food/`, `menu/`, `orders/`, `order_items/`, `reviews/`).
+### Step 2: Snowflake Setup
+Run the SQL scripts located in the `snowflake/` directory sequentially within Snowflake (Snowsight):
+1. Execute `01_setup.sql` to create the warehouse, database, and schemas.
+2. Follow `02_storage_integration.sql` alongside the JSON policies in `aws/iam/` to create a keyless S3 storage integration.
+3. Execute `03_stage_and_formats.sql`, `04_raw_tables.sql`, and `05_copy_into.sql` to load the data into the RAW (Bronze) layer.
 
-### 2 · S3 → Snowflake: one keyless handshake
+### Step 3: Transformation (dbt)
+1. Navigate to the dbt project:
+   ```bash
+   cd urbanmeal
+   ```
+2. Export your Snowflake credentials as environment variables:
+   ```bash
+   export SNOWFLAKE_ACCOUNT=<your-account>
+   export SNOWFLAKE_USER=<your-username>
+   export SNOWFLAKE_PASSWORD=<your-password>
+   ```
+3. Verify the connection and build the models:
+   ```bash
+   dbt debug
+   dbt build --exclude tag:ai
+   ```
 
-Snowflake reads the bucket with **no stored keys**, using a storage integration + an IAM role. The Snowflake side is [`snowflake/02_storage_integration.sql`](snowflake/02_storage_integration.sql); the AWS JSON documents live in [`aws/iam/`](aws/iam/):
+### Step 4: Orchestration (Apache Airflow)
+1. Navigate to the Airflow directory:
+   ```bash
+   cd airflow
+   ```
+2. Set up the environment variables:
+   ```bash
+   cp example.env .env
+   # Edit .env and fill in SNOWFLAKE_*, OPENAI_API_KEY, and SAMPLE_N
+   ```
+3. Start the Airflow cluster:
+   ```bash
+   docker compose build
+   docker compose up -d
+   ```
+4. Access the Airflow UI at `http://localhost:8080`, unpause the `urbanmeal_batch` DAG, and trigger it.
 
-| File | Used for |
-|---|---|
-| [`s3-read-policy.json`](aws/iam/s3-read-policy.json) | IAM **policy** `urbanmeal-s3-read` — read-only access to the bucket |
-| [`snowflake-role-trust-policy-initial.json`](aws/iam/snowflake-role-trust-policy-initial.json) | IAM **role** `snowflake-s3-role` — placeholder trust used at creation time |
-| [`snowflake-role-trust-policy-final.json`](aws/iam/snowflake-role-trust-policy-final.json) | Final trust — Snowflake's IAM user ARN + external ID from `DESC INTEGRATION` |
-
-The order matters: create the AWS policy + role → create the Snowflake `STORAGE INTEGRATION` pointing at the role ARN → `DESC INTEGRATION` to get `STORAGE_AWS_IAM_USER_ARN` and `STORAGE_AWS_EXTERNAL_ID` → paste both into the role's trust policy. (Two hard-won lessons: the trust `Principal` must be Snowflake's IAM user ARN, not `:root` — and never re-run `CREATE OR REPLACE` on the integration afterward, it regenerates the external ID and breaks the trust.)
-
-### 3 · Load — `COPY INTO`
-
-Table DDL ([`snowflake/04_raw_tables.sql`](snowflake/04_raw_tables.sql)) matches each CSV's column order, then [`snowflake/05_copy_into.sql`](snowflake/05_copy_into.sql) pulls each file from the stage into `URBANMEAL.RAW` tables: 10M orders, ~23M order items, 300K reviews.
-
-### 4 · Transform — dbt (medallion)
-
-- **Staging (Silver)** — one view per source: parse the messy restaurant dimension (`--` → null, `₹ 200` → 200), lowercase emails, derive `is_delivered`, etc.
-- **Dimensions (Gold)** — `dim_restaurants`, `dim_customer` (with age segments), `dim_food`, a generated `dim_date` calendar.
-- **Facts (Gold, incremental)** — `fct_orders` and `fact_order_items` use `materialized='incremental'` with a MERGE strategy, so a re-run processes only new rows instead of rebuilding 10M+.
-- **Marts (Gold)** — one table per business question: daily city revenue (GMV/AOV/cancel rate), restaurant performance, delivery SLA (p50/p90 by city & hour), review insights.
-- **Tests** — `unique` / `not_null` / `relationships` / `accepted_values` plus a singular reconciliation test; `dbt build` runs models and tests in dependency order.
-
-### 5 · Orchestrate — Airflow
-
-One daily DAG, [`urbanmeal_batch`](airflow/dags/urbanmeal_batch.py), runs the whole thing as a single graph:
-
-```
-reload_raw  →  dbt_build_core  →  enrich_reviews  →  dbt_build_ai
-(COPY from S3)  (dbt build + tests)  (OpenAI enrichment)   (AI mart)
-```
-
-Credentials never touch the code: docker-compose injects `SNOWFLAKE_*` env vars (read by dbt's `profiles.yml` via `env_var()`) and an `AIRFLOW_CONN_SNOWFLAKE_DEFAULT` connection for the COPY task.
-
-### 6 · AI layer — three capabilities
-
-1. **LLM enrichment** (`ai/enrich_reviews.py`) — *LLM as a transformation step.* Reads review text, asks `gpt-4o-mini` for structured JSON (sentiment + topic), writes it back to `URBANMEAL.AI.REVIEW_ENRICHED` — which dbt then models into `mart_review_insights` like any other table. Idempotent and sample-capped (`SAMPLE_N`) so you never pay twice for the same review.
-2. **RAG** (`ai/rag_chat.py`) — *chat with your reviews.* Embeds reviews, retrieves the most similar ones for a question, and generates an answer grounded in real reviews (with sources).
-3. **Text-to-SQL** (`ai/text_to_sql.py`) — *chat with your warehouse.* The LLM gets the marts' schema, writes Snowflake SQL for an English question, and a SELECT-only guard validates it before running as `DBT_ROLE`.
-
-## Running it
-
+### Step 5: Run the AI Apps (Streamlit)
+To interact with the data using AI, export your OpenAI API key and run the Streamlit apps:
 ```bash
-# Snowflake objects (warehouse URBANMEAL_WH, database URBANMEAL, schemas RAW/STAGING/MARTS/SNAPSHOTS/AI, role DBT_ROLE)
-# + the S3 storage integration: run snowflake/01→05 in Snowsight — see aws/iam/ for the AWS side.
-
-# dbt
-cd urbanmeal
-export SNOWFLAKE_ACCOUNT=... SNOWFLAKE_USER=... SNOWFLAKE_PASSWORD=...
-dbt debug && dbt build --exclude tag:ai
-
-# Airflow
-cd airflow
-cp example.env .env          # fill SNOWFLAKE_* , OPENAI_API_KEY, SAMPLE_N
-docker compose build && docker compose up -d
-# http://localhost:8080 → un-pause urbanmeal_batch → Trigger
-
-# AI apps
 export OPENAI_API_KEY=sk-...
+
+# To run batch review enrichment:
 python ai/enrich_reviews.py
-streamlit run ai/rag_chat.py      # chat with reviews
-streamlit run ai/text_to_sql.py   # chat with the warehouse
+
+# To chat with your reviews via RAG:
+streamlit run ai/rag_chat.py
+
+# To query the warehouse using natural language:
+streamlit run ai/text_to_sql.py
 ```
