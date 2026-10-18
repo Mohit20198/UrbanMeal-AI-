@@ -19,12 +19,16 @@ The dataset lands in an **Amazon S3 data lake** and is ingested directly into **
 ---
 
 ## 🏗️ Architecture & Tech Stack
-**Flow:** UrbanMeal CSVs → Amazon S3 → Amazon Redshift → dbt (`dbt-redshift`) → Apache Airflow 3 → AI Layer (OpenAI + Streamlit)
 
-- **Storage & Data Warehouse:** Amazon S3, Amazon Redshift (Serverless or Provisioned)
-- **Data Transformation:** dbt (`dbt-redshift`)
+![UrbanMeal Architecture](docs/architecture.png)
+
+**Pipeline Flow:** UrbanMeal CSVs → Amazon S3 → Amazon Redshift (Bronze) → dbt Core (Silver/Gold) → Apache Airflow 3 → Groq AI Layer → Streamlit Unified Hub
+
+- **Storage & Data Warehouse:** Amazon S3, Amazon Redshift Serverless
+- **Data Transformation:** dbt Core (`dbt-redshift`)
 - **Pipeline Orchestration:** Apache Airflow 3 (Docker Compose)
-- **AI & Frontend:** Python 3.11+, `redshift-connector`, OpenAI (`gpt-4o-mini`, `text-embedding-3-small`), Streamlit, Pandas
+- **AI & LLM Stack:** Groq (`openai/gpt-oss-120b`), Sentence-Transformers (`all-MiniLM-L6-v2`), OpenAI API compatible
+- **Analytics & BI Frontend:** Streamlit Unified Portal (`ai/app.py`), Plotly, Pandas, `redshift-connector`
 
 ---
 
@@ -41,9 +45,10 @@ The dataset lands in an **Amazon S3 data lake** and is ingested directly into **
 │   ├── macros/                  # Custom schema resolution macros
 │   └── models/                  # Staging and Marts models (Redshift-compatible SQL)
 ├── ai/                          # AI Layer & Streamlit Applications
+│   ├── app.py                   # Unified Streamlit Hub (Text-to-SQL + RAG + Redshift BI)
 │   ├── requirements.txt         # Python dependencies for the AI layer
 │   ├── example.env              # Local .env template
-│   ├── enrich_reviews.py        # OpenAI batch sentiment & topic classification
+│   ├── enrich_reviews.py        # Groq batch sentiment & topic classification
 │   ├── rag_chat.py              # Streamlit RAG review assistant with embeddings
 │   └── text_to_sql.py           # Streamlit Text-to-SQL for Redshift
 ├── redshift/                    # Amazon Redshift Setup & DDL Scripts
