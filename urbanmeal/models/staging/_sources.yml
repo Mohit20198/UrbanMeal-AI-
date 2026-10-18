@@ -1,7 +1,10 @@
+version: 2
+
 sources:
   - name: raw
-    database: URBANMEAL
-    schema: RAW
+    schema: raw
+    quoting:
+      schema: true
     tables:
       - name: restaurants
         description: "This table contains the raw data of restaurants from UrbanMeal."
@@ -17,5 +20,3 @@ sources:
         description: "This table contains the raw data of order items from UrbanMeal."
       - name: reviews
         description: "This table contains the raw data of reviews from UrbanMeal."
-
-        

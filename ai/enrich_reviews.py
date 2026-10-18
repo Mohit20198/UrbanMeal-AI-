@@ -1,16 +1,22 @@
 import os
 import json
-import snowflake.connector
+import redshift_connector
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-MODEL = "gpt-4o-mini"
+API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
+BASE_URL = "https://api.groq.com/openai/v1" if os.getenv("GROQ_API_KEY") else None
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b") if os.getenv("GROQ_API_KEY") else "gpt-4o-mini"
 
-SAMPLE_N = 5
+SAMPLE_N = int(os.getenv("SAMPLE_N", "5"))
 TOPICS = ["food quality", "delivery", "pricing", "service", "packaging", "other"]
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=BASE_URL
+)
 
 SYSTEM_PROMPT = f"""
 You classify customer reviews for a food delivery app.
@@ -26,39 +32,41 @@ Reply as JSON in this exact format:
     "sentiment_label": "<sentiment_label>",
     "sentiment_score": <sentiment_score>,
     "topic": "<topic>",
-    "key_issue": "<key_issue>"}}
+    "key_issue": "<key_issue>"
+}}
 """
 
 def get_connection():
-    return snowflake.connector.connect(
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        database=os.getenv("SNOWFLAKE_DATABASE"),
-        schema=os.getenv("SNOWFLAKE_SCHEMA"),
+    return redshift_connector.connect(
+        host=os.getenv("REDSHIFT_HOST"),
+        port=int(os.getenv("REDSHIFT_PORT", "5439")),
+        database=os.getenv("REDSHIFT_DATABASE", "dev"),
+        user=os.getenv("REDSHIFT_USER"),
+        password=os.getenv("REDSHIFT_PASSWORD"),
+        ssl=True
     )
 
 def create_output_table(cursor):
-    cursor.execute("CREATE SCHEMA IF NOT EXISTS URBANMEAL.AI")
+    cursor.execute("CREATE SCHEMA IF NOT EXISTS ai;")
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS URBANMEAL.AI.REVIEW_ENRICHED (
-            REVIEW_ID STRING,
-            SENTIMENT_LABEL STRING,
-            SENTIMENT_SCORE FLOAT,
-            TOPIC STRING,
-            KEY_ISSUE STRING,
-            MODEL STRING,
-            ENRICHED_AT TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
-        )
+        CREATE TABLE IF NOT EXISTS ai.review_enriched (
+            review_id VARCHAR(64),
+            sentiment_label VARCHAR(32),
+            sentiment_score FLOAT,
+            topic VARCHAR(64),
+            key_issue VARCHAR(256),
+            model VARCHAR(64),
+            enriched_at TIMESTAMP DEFAULT SYSDATE
+        );
     """)
 
 def get_reviews_to_enrich(cursor):
     cursor.execute(f"""
-        SELECT REVIEW_ID, COMMENT
-        FROM URBANMEAL.RAW.REVIEWS
-        WHERE REVIEW_ID NOT IN (SELECT REVIEW_ID FROM URBANMEAL.AI.REVIEW_ENRICHED)
-        LIMIT {SAMPLE_N}
+        SELECT review_id, comment
+        FROM "raw".reviews
+        WHERE cast(review_id as varchar) NOT IN (SELECT review_id FROM ai.review_enriched)
+          AND comment IS NOT NULL
+        LIMIT {SAMPLE_N};
     """)
     return cursor.fetchall()
 
@@ -76,17 +84,16 @@ def classify_review(comment):
     return json.loads(answer)
 
 def save_results(cursor, results):
-    """Insert all the enriched rows into Snowflake in one go."""
-    print(f"Saving {len(results)} enriched reviews to Snowflake...")
+    """Insert all the enriched rows into Redshift."""
+    print(f"Saving {len(results)} enriched reviews to Redshift...")
     cursor.executemany(
         """
-        INSERT INTO URBANMEAL.AI.REVIEW_ENRICHED
+        INSERT INTO ai.review_enriched
             (review_id, sentiment_label, sentiment_score, topic, key_issue, model)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s);
         """,
         results,
     )
- 
 
 def main():
     conn = get_connection()
@@ -96,9 +103,11 @@ def main():
 
     if len(reviews) == 0:
         print("No new reviews to enrich.")
+        cursor.close()
+        conn.close()
         return
 
-    print(f"Enriching {len(reviews)} reviews...")
+    print(f"Enriching {len(reviews)} reviews using {MODEL} on Groq...")
 
     results = []
     for review_id, comment in reviews:
@@ -107,19 +116,21 @@ def main():
             labels = classify_review(comment)
             print(f"Labels for review {review_id}: {labels}")
             results.append((
-                review_id,
-                labels["sentiment_label"],
-                labels["sentiment_score"],
-                labels["topic"],
-                labels["key_issue"],
+                str(review_id),
+                labels.get("sentiment_label", "neutral"),
+                float(labels.get("sentiment_score", 0.0)),
+                labels.get("topic", "other"),
+                labels.get("key_issue"),
                 MODEL
             ))
         except Exception as e:
             print(f"Error occurred while classifying review {review_id}: {e}")
 
-    save_results(cursor, results)
-    print(f"Saved {len(results)} enriched reviews to Snowflake.")
-    conn.commit()
+    if results:
+        save_results(cursor, results)
+        print(f"Successfully saved {len(results)} enriched reviews to Redshift.")
+        conn.commit()
+
     cursor.close()
     conn.close()
 

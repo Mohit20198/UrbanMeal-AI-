@@ -3,7 +3,9 @@
   "Statement": [
     {
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::<ACCOUNT_ID>:root" },
+      "Principal": {
+        "Service": "redshift.amazonaws.com"
+      },
       "Action": "sts:AssumeRole"
     }
   ]

@@ -1,30 +1,104 @@
-# macOS
+# =====================================================================
+# Operating System & IDE Files
+# =====================================================================
 .DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# Secrets — never commit
+# =====================================================================
+# Secrets & Environment Configurations (CRITICAL — NEVER COMMIT)
+# =====================================================================
 .env
 *.env
-!example.env
-zomato/profiles.yml
+**/.env
+**/*.env
+!*example.env
+!*.env.example
+!**/*example.env
+!**/*.env.example
+urbanmeal/profiles.local.yml
 
-# Raw data (too large for GitHub)
+# =====================================================================
+# Large Data Files & Datasets (Too large for GitHub)
+# (Dataset download link provided in README.md)
+# =====================================================================
+*.csv
+**/*.csv
+*.tsv
+**/*.tsv
+*.parquet
+**/*.parquet
+*.feather
+*.jsonl
+*.gz
+*.zip
+*.tar
 data/
+raw_data/
 
+# =====================================================================
+# Python & Virtual Environments
+# =====================================================================
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# =====================================================================
+# Streamlit & UI Cache
+# =====================================================================
+.streamlit/
+
+# =====================================================================
 # Logs
+# =====================================================================
 logs/
+**/logs/
+*.log
+**/*.log
 airflow/logs/
 
-# dbt artifacts
-zomato/target/
-zomato/dbt_packages/
-zomato/logs/
-zomato/.user.yml
+# =====================================================================
+# dbt Generated Artifacts
+# =====================================================================
+urbanmeal/target/
+urbanmeal/dbt_packages/
+urbanmeal/logs/
+urbanmeal/.user.yml
+target/
+dbt_packages/
+.user.yml
 
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-
-# Generated outputs
-ai/review_embeddings.parquet
+# =====================================================================
+# Temporary & Scratch Files
+# =====================================================================
+rename_script.py
+scratch/

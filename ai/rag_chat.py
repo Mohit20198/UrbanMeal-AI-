@@ -2,61 +2,81 @@ import os
 import numpy as np
 import pandas as pd
 import streamlit as st
-import snowflake.connector
+import redshift_connector
+from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-EMBEDDING_MODEL = "text-embedding-3-small"
-CHAT_MODEL = "gpt-4o-mini"
+API_KEY = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
+BASE_URL = "https://api.groq.com/openai/v1" if os.getenv("GROQ_API_KEY") else None
+CHAT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b") if os.getenv("GROQ_API_KEY") else "gpt-4o-mini"
+
 NEW_REVIEWS = 500
 TOK_K = 5
-CACHE_FILE = "review_embeddings.parquet"
+CACHE_FILE = "ai/review_embeddings.parquet"
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-def read_reviews_from_snowflake():
-    conn = snowflake.connector.connect(
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        database=os.getenv("SNOWFLAKE_DATABASE"),
-        schema=os.getenv("SNOWFLAKE_SCHEMA"),
+client = OpenAI(
+    api_key=API_KEY,
+    base_url=BASE_URL
+)
+
+@st.cache_resource
+def load_embedder():
+    return SentenceTransformer("all-MiniLM-L6-v2")
+
+def read_reviews_from_redshift():
+    conn = redshift_connector.connect(
+        host=os.getenv("REDSHIFT_HOST"),
+        port=int(os.getenv("REDSHIFT_PORT", "5439")),
+        database=os.getenv("REDSHIFT_DATABASE", "dev"),
+        user=os.getenv("REDSHIFT_USER"),
+        password=os.getenv("REDSHIFT_PASSWORD"),
+        ssl=True
     )
 
     query = f"""
-        SELECT REVIEW_ID, CITY, RATING, COMMENT
-        FROM URBANMEAL.STAGING.STG_REVIEWS
-        SAMPLE ({NEW_REVIEWS} ROWS)
+        SELECT review_id, city, rating, comment
+        FROM staging.stg_reviews
+        WHERE comment IS NOT NULL
+        ORDER BY RANDOM()
+        LIMIT {NEW_REVIEWS}
     """
-    df = conn.cursor().execute(query).fetch_pandas_all()
+    cursor = conn.cursor()
+    cursor.execute(query)
+    try:
+        df = cursor.fetch_dataframe()
+    except Exception:
+        rows = cursor.fetchall()
+        cols = [desc[0] for desc in cursor.description]
+        df = pd.DataFrame(rows, columns=cols)
+
+    cursor.close()
     conn.close()
 
     df.columns = [col.lower() for col in df.columns]
     return df
 
 def embed(texts):
-    response = client.embeddings.create(
-        model=EMBEDDING_MODEL,
-        input=texts)
+    embedder = load_embedder()
+    return embedder.encode(texts, show_progress_bar=False).tolist()
 
-    return [item.embedding for item in response.data]
-    
 @st.cache_data()
 def load_reviews():
     if os.path.exists(CACHE_FILE):
         return pd.read_parquet(CACHE_FILE)
 
-    df = read_reviews_from_snowflake()
+    df = read_reviews_from_redshift()
     df['embedding'] = embed(df['comment'].tolist())
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
     df.to_parquet(CACHE_FILE)
     return df
 
-st.title("Chat with your UrbanMeal Reviews")
-st.caption(f"Searching {NEW_REVIEWS} review, answering with {CHAT_MODEL} model")
+st.title("Chat with your UrbanMeal Reviews (Redshift + Groq)")
+st.caption(f"Searching {NEW_REVIEWS} reviews from Redshift, answering with {CHAT_MODEL} on Groq")
 
-def consine_simiarity(vec_a, vec_b):
+def cosine_similarity(vec_a, vec_b):
     return np.dot(vec_a, vec_b) / (np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
 
 def find_similar_reviews(question, df):
@@ -64,24 +84,23 @@ def find_similar_reviews(question, df):
 
     scores = []
     for review_vector in df['embedding']:
-        scores.append(consine_simiarity(question_vector, review_vector))
+        scores.append(cosine_similarity(question_vector, review_vector))
 
     df = df.copy()
     df['score'] = scores
     return df.nlargest(TOK_K, 'score')
 
 def ask_llm(question, top_reviews):
-    conext = ""
-
+    context = ""
     for _, row in top_reviews.iterrows():
-        conext += f" ({row['city']}, {row['rating']} stars) {row['comment']}\n"
+        context += f" ({row['city']}, {row['rating']} stars) {row['comment']}\n"
 
     system_prompt = (
         "Answer ONLY using the customer reviews provided. "
-        "Be concise. If the reviews don't covert it, say so"
+        "Be concise. If the reviews don't cover it, say so."
     )
 
-    user_prompt = f"Questions: {question}\n\nReviews:\n{conext}"
+    user_prompt = f"Question: {question}\n\nReviews:\n{context}"
 
     response = client.chat.completions.create(
         model=CHAT_MODEL,
@@ -92,17 +111,20 @@ def ask_llm(question, top_reviews):
         ]
     )
     return response.choices[0].message.content
-    
+
 review_df = load_reviews()
 
-question = st.text_input("Ask a question about your reviews:",
-                         placeholder="e.g. What are the most common complaints about delivery?")
+question = st.text_input(
+    "Ask a question about your reviews:",
+    placeholder="e.g. What are the most common complaints about delivery?"
+)
 
 if question:
-    top_reviews = find_similar_reviews(question, review_df)
-    answer = ask_llm(question, top_reviews)
+    with st.spinner("Searching reviews and generating answer..."):
+        top_reviews = find_similar_reviews(question, review_df)
+        answer = ask_llm(question, top_reviews)
 
-    st.markdown(f"**Answer:**")
+    st.markdown("**Answer:**")
     st.write(answer)
 
     with st.expander("Reviews used to build this answer"):
